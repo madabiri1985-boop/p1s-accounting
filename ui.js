@@ -41,9 +41,9 @@ const draft = {};
 function newSale() { return { date: C.todayJ(), kind: 'فروش', customer: '', acc: accOpts()[1] || accOpts()[0] || '', disc: '', ship: '', shipPayer: C.SHIP_PAYERS[0], rcv: '', note: '', lines: [{ product: '', qty: '', price: '' }] }; }
 function newBuy() { return { date: C.todayJ(), vendor: '', acc: accOpts()[1] || accOpts()[0] || '', ship: '', alloc: 'amount', note: '', lines: [{ item: '', newName: '', newType: '', newColor: '', pkgs: '', perPkg: '', price: '' }] }; }
 function newPlate() { return { desc: '', prints: '', h: '', m: '', model: '', fils: [{ item: '', grams: '' }] }; }
-function newProd() { return { date: C.todayJ(), product: '', newName: '', cat: '', good: '', fail: '', actualH: '', actualG: '', designH: '', researchH: '', post: '', assm: '', pack: '', saveDef: false, note: '', plates: [newPlate()], accs: [] }; }
+function newProd() { return { date: C.todayJ(), product: '', newName: '', cat: '', good: '', fail: '', actualH: '', actualM: '', actualG: '', designH: '', designM: '', researchH: '', researchM: '', post: '', assm: '', pack: '', saveDef: false, note: '', plates: [newPlate()], accs: [] }; }
 function newPay() { return { date: C.todayJ(), customer: '', amount: '', acc: accOpts()[1] || accOpts()[0] || '', inv: '', desc: '' }; }
-function newCash() { return { date: C.todayJ(), type: 'پرداخت هزینه', acc: accOpts()[1] || accOpts()[0] || '', amount: '', customer: '', inv: '', expCat: '', hours: '', acc2: '', desc: '' }; }
+function newCash() { return { date: C.todayJ(), type: 'پرداخت هزینه', acc: accOpts()[1] || accOpts()[0] || '', amount: '', customer: '', inv: '', expCat: '', timeH: '', timeM: '', acc2: '', desc: '' }; }
 function newAdj() { return { date: C.todayJ(), type: C.ADJ_TYPES[0], inv: '', product: '', item: '', qty: '', reason: '', rmode: C.REFUND_MODES[1], acc: '', note: '' }; }
 function newUser() { return { name: '', full: '', role: 'staff', pw: '' }; }
 function resetDraft(k) { draft[k] = { sale: newSale, buy: newBuy, prod: newProd, pay: newPay, cash: newCash, adj: newAdj, user: newUser }[k](); }
@@ -59,6 +59,9 @@ const hoursOf = (h) => { // accepts 7:48, ۷:۴۸ or 7.8
   const m = s.match(/^(\d+)[:٫.,](\d{1,2})$/); if (m && s.includes(':')) return +m[1] + +m[2] / 60;
   return C.num(s);
 };
+// time as two boxes (hours : minutes) – phone number keyboards have no ':' key
+const hmIn = (bind, f, key) => `<div class="hm">${numIn(`${bind}.${key}H`, f[key + 'H'], 'placeholder="ساعت"')}<b>:</b>${numIn(`${bind}.${key}M`, f[key + 'M'], 'placeholder="دقیقه"')}</div>`;
+const hrsOf = (f, key) => C.num(f[key + 'H']) + C.num(f[key + 'M']) / 60;
 
 // ------------------------------------------------------------------ routing and permissions
 let route = null, sub = null;
@@ -104,7 +107,7 @@ function updateBadge() {
   const b = $('#sync'); if (!b) return;
   const i = Sync.info(), on = !!(Sync.conn() && Sync.user());
   b.hidden = !on;
-  const map = { ok: ['ok', 'همگام'], idle: ['wait', 'همگام'], sync: ['wait', 'ارسال…'], pending: ['wait', `${fq(i.pending)} در صف`], offline: ['off', 'آفلاین'], error: ['bad', 'خطا'] };
+  const map = { ok: ['ok', 'همگام'], idle: ['wait', 'همگام'], sync: ['wait', i.pending ? 'ارسال…' : 'دریافت…'], pending: ['wait', `${fq(i.pending)} در صف`], offline: ['off', 'آفلاین'], error: ['bad', 'خطا'] };
   let [cls, label] = map[i.status] || map.idle;
   if (i.pending && i.status !== 'sync') { cls = i.status === 'error' ? 'bad' : i.status === 'offline' ? 'off' : 'wait'; label = `${fq(i.pending)} در صف`; }
   b.className = 'syncb ' + cls; b.innerHTML = `<i></i>${label}`;
@@ -271,7 +274,7 @@ function pgBuy() {
 // ------------------------------------------------------------------ production
 function prodForm() { // draft.prod with hours parsed
   const f = draft.prod;
-  return { ...f, actualH: hoursOf(f.actualH), designH: hoursOf(f.designH), researchH: hoursOf(f.researchH),
+  return { ...f, actualH: hrsOf(f, 'actual'), designH: hrsOf(f, 'design'), researchH: hrsOf(f, 'research'),
     plates: f.plates.map(p => ({ ...p })), accs: f.accs.map(a => ({ ...a })) };
 }
 function pgProd() {
@@ -303,9 +306,12 @@ function pgProd() {
   ${card('پلیت‌ها (هر پلیت تا ۴ فیلامنت)', plates + `<button class="ghost" data-act="addPlate">+ افزودن پلیت</button>`)}
   ${card('اکسسوری، بسته‌بندی و اقلام مصرفی', (accs || '<p class="muted">اگر آهن‌ربا، پین، کیسه و ... مصرف شده اضافه کنید.</p>') + `<button class="ghost" data-act="addAcc">+ افزودن قلم</button>`)}
   ${card('زمان کار و جزئیات', `
-    <div class="grid3">${field('پس‌پردازش هر محصول (دقیقه)', numIn('prod.post', f.post))}${field('مونتاژ و پرداخت (دقیقه)', numIn('prod.assm', f.assm))}${field('بسته‌بندی (دقیقه)', numIn('prod.pack', f.pack))}</div>
-    <div class="grid2">${field('زمان طراحی', txt('prod.designH', f.designH, 'inputmode="numeric" placeholder="مثلاً 1:30"'))}${field('زمان بررسی و جستجو', txt('prod.researchH', f.researchH, 'inputmode="numeric" placeholder="مثلاً 0:45"'))}</div>
-    <div class="grid2">${field('زمان واقعی کل چاپ (اختیاری)', txt('prod.actualH', f.actualH, 'inputmode="numeric" placeholder="مثلاً 17:10"'))}${field('وزن واقعی فیلامنت (گرم، اختیاری)', numIn('prod.actualG', f.actualG))}</div>
+    <p class="muted">پس‌پردازش، مونتاژ و بسته‌بندی: دقیقه برای هر محصول.</p>
+    <div class="grid3">${field('پس‌پردازش', numIn('prod.post', f.post, 'placeholder="دقیقه"'))}${field('مونتاژ و پرداخت', numIn('prod.assm', f.assm, 'placeholder="دقیقه"'))}${field('بسته‌بندی', numIn('prod.pack', f.pack, 'placeholder="دقیقه"'))}</div>
+    ${field('زمان طراحی', hmIn('prod', f, 'design'))}
+    ${field('زمان بررسی و جستجو', hmIn('prod', f, 'research'))}
+    ${field('زمان واقعی کل چاپ (اختیاری)', hmIn('prod', f, 'actual'), 'خالی = زمان Bambu × ضریب اصلاح')}
+    ${field('وزن واقعی فیلامنت (گرم، اختیاری)', numIn('prod.actualG', f.actualG))}
     ${isNew || !A() ? '' : `<label class="chk"><input type="checkbox" data-bind="prod.saveDef" ${f.saveDef ? 'checked' : ''}> این اعداد در تعریف محصول ذخیره شود</label>`}
     ${field('توضیحات / مشتری', txt('prod.note', f.note))}`)}
   ${card('نتیجه محاسبه', `<div data-live="prodSum"></div>`)}
@@ -338,7 +344,7 @@ function pgCash() {
     <div class="grid2">${field(f.type === 'انتقال بین حساب‌ها' ? 'از حساب' : 'حساب', selIn('cash.acc', accOpts(), f.acc))}
     ${f.type === 'انتقال بین حساب‌ها' ? field('به حساب', selIn('cash.acc2', accOpts(), f.acc2)) : ''}
     ${f.type === 'پرداخت هزینه' ? field('دسته هزینه', selIn('cash.expCat', C.S().lists.expCats, f.expCat)) : ''}</div>
-    ${f.type === 'پرداخت هزینه' ? field('زمان صرف‌شده (مثلاً 2:30، اختیاری)', txt('cash.hours', f.hours, 'inputmode="numeric"'), 'برای تبلیغات و مدیریت شبکه‌های اجتماعی؛ ارزش زمان در سود و زیان می‌آید') : ''}
+    ${f.type === 'پرداخت هزینه' ? field('زمان صرف‌شده (اختیاری)', hmIn('cash', f, 'time'), 'برای تبلیغات و مدیریت شبکه‌های اجتماعی؛ ارزش زمان در سود و زیان می‌آید') : ''}
     ${field('شرح', txt('cash.desc', f.desc))}`)}
   <div class="actions"><button class="primary" data-act="saveCash">ثبت</button></div>
   ${card(A() ? 'آخرین موارد' : 'آخرین ثبت‌های من', recent.map(c => row(`${jd(c.date)} | ${esc(c.type)}`, `${fmt(c.amount)} | ${esc(c.acc)}`)).join('') || '<p class="muted">هنوز چیزی ثبت نشده.</p>')}`;
@@ -750,7 +756,7 @@ document.addEventListener('click', async e => {
         const name = f.customer; resetDraft('pay'); toast(`دریافت ثبت شد. بدهی فعلی ${name}: ${fmt(C.customerCalc(name).debt)}`); render(); break;
       }
       case 'custPay': draft.pay.customer = b.dataset.name; go('pay'); break;
-      case 'saveCash': { const f = parseDates(draft.cash, ['date']); await act('cash', { ...f, hours: hoursOf(f.hours) }, 'ثبت شد.'); resetDraft('cash'); render(); break; }
+      case 'saveCash': { const f = parseDates(draft.cash, ['date']); await act('cash', { ...f, hours: hrsOf(f, 'time') }, 'ثبت شد.'); resetDraft('cash'); render(); break; }
       case 'saveAdj': { const f = parseDates(draft.adj, ['date']); await act('adj', f, 'ثبت شد.'); resetDraft('adj'); render(); break; }
       case 'openInv': go('invoices', b.dataset.no); break;
       case 'print': window.print(); break;

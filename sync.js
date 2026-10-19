@@ -46,7 +46,7 @@ const Sync = (() => {
           ...(opts.body ? { 'Content-Type': 'application/json' } : {}) },
         body: opts.body ? JSON.stringify(opts.body) : undefined
       });
-    } catch (e) { const err = new Error('اینترنت در دسترس نیست.'); err.offline = true; throw err; }
+    } catch (e) { const err = new Error(`اتصال به api.github.com برقرار نشد (اینترنت، فیلترشکن، فایروال یا افزونه مرورگر). جزئیات: ${e.message}`); err.offline = true; throw err; }
     if (res.status === 401) throw new Error('کد اتصال نامعتبر یا منقضی شده است. از ادمین کد جدید بگیرید.');
     if (res.status === 403 && res.headers.get('x-ratelimit-remaining') === '0') throw new Error('محدودیت تعداد درخواست GitHub؛ چند دقیقه بعد دوباره امتحان کنید.');
     return res;
@@ -97,14 +97,20 @@ const Sync = (() => {
     }
     return Sha.pbkdf2(pw, salt, iter, 32);
   }
+  // Persian/Arabic digits typed on a phone keyboard count the same as English digits
   async function hashPassword(password) {
     const salt = new Uint8Array(16); crypto.getRandomValues(salt);
-    return { salt: bytesToB64(salt), hash: bytesToB64(await pbkdf2(password, salt, ITER)), iter: ITER };
+    return { salt: bytesToB64(salt), hash: bytesToB64(await pbkdf2(C.toEnDigits(password), salt, ITER)), iter: ITER };
   }
   async function checkPassword(u, password) {
-    const h = bytesToB64(await pbkdf2(password, b64ToBytes(u.salt), u.iter || ITER));
-    return h === u.hash;
+    for (const pw of new Set([password, C.toEnDigits(password)])) {
+      if (bytesToB64(await pbkdf2(pw, b64ToBytes(u.salt), u.iter || ITER)) === u.hash) return true;
+    }
+    return false;
   }
+  // user names: not case sensitive, extra spaces ignored ("mohammad  ali" = "Mohammad Ali")
+  const normName = s => C.toEnDigits(String(s || '')).trim().replace(/\s+/g, ' ').toLowerCase();
+  const findUser = name => (C.S().users || []).find(x => normName(x.name) === normName(name));
 
   // ------------------------------------------------------------------ startup, connect, login
   async function init() {
@@ -141,7 +147,7 @@ const Sync = (() => {
     } catch (e) { conn = keep; if (e.conflict) throw new Error('پایگاه داده از قبل وجود دارد؛ «اتصال» را بزنید.'); throw e; }
   }
   async function login(name, password) {
-    const u = (C.S().users || []).find(x => x.name === String(name).trim());
+    const u = findUser(name);
     if (!u || !(await checkPassword(u, password))) throw new Error('نام کاربری یا رمز اشتباه است.');
     if (!u.active) throw new Error('این کاربر غیرفعال شده است.');
     session = { name: u.name }; writeLs(SESSION, session); notify();
