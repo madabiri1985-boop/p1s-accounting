@@ -1,8 +1,8 @@
 {
-  "name": "p1s-accounting",
-  "version": "1.0.0",
+  "name": "voxara3d",
+  "version": "2.0.0",
   "private": true,
-  "description": "P1S 3D printing accounting – offline mobile app (PWA + Capacitor)",
+  "description": "Voxara.3d – 3D printing accounting, shared web app + Android/iOS (Capacitor)",
   "scripts": {
     "android": "npx cap add android && npx cap sync android",
     "ios": "npx cap add ios && npx cap sync ios",

@@ -1,6 +1,6 @@
 {
-  "appId": "ir.nookarthouse.p1s",
-  "appName": "حسابداری P1S",
+  "appId": "com.voxara3d.app",
+  "appName": "Voxara.3d",
   "webDir": "www",
   "android": { "allowMixedContent": false },
   "ios": { "contentInset": "always" }

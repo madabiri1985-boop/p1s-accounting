@@ -3,11 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#17324d">
+<meta name="theme-color" content="#1b1e25">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="حسابداری P1S">
-<title>حسابداری P1S</title>
+<meta name="apple-mobile-web-app-title" content="Voxara.3d">
+<title>Voxara.3d</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -16,13 +17,16 @@
 <body>
 <header class="top noprint">
   <button id="back" class="icon" aria-label="بازگشت" hidden>›</button>
-  <h1 id="title">داشبورد</h1>
-  <span class="brand">P1S</span>
+  <img class="hlogo" src="icons/icon-192.png" alt="Voxara.3d">
+  <h1 id="title">Voxara.3d</h1>
+  <button id="sync" class="syncb" hidden aria-label="وضعیت همگام‌سازی"></button>
 </header>
 <main id="main"></main>
-<nav id="nav" class="noprint"></nav>
+<nav id="nav" class="noprint" hidden></nav>
 <div id="toast" class="toast" role="status"></div>
 <script src="core.js"></script>
+<script src="sync.js"></script>
+<script src="pdf.js"></script>
 <script src="ui.js"></script>
 </body>
 </html>

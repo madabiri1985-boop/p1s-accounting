@@ -1,5 +1,5 @@
 'use strict';
-/* P1S accounting – data model, storage and all calculations (same logic as the Excel workbook v7). */
+/* Voxara.3d accounting – data model, storage and all calculations (same logic as the Excel workbook v7). */
 
 const Core = (() => {
   // ------------------------------------------------------------------ helpers
@@ -89,9 +89,10 @@ const Core = (() => {
   function defaultState() {
     const it = (code, type, name, color, unit, initPrice, minStock) => ({ code, type, name, color, unit, initPrice, overridePrice: 0, initStock: 0, minStock });
     return {
-      version: 1,
+      version: 2,
+      users: [],
       settings: {
-        bizName: 'Nook Art House', bizInfo: '',
+        bizName: 'Voxara.3d', bizInfo: '',
         rateLabor: 150000, rateDesign: 250000, rateResearch: 150000, rateSocial: 150000, ratePower: 5000,
         setupMin: 10, machineHours: 200, machineMaint: 10000000, timeFactor: 1.1, matFactor: 1.05, markup1: 0.5, markup2: 1.0
       },
@@ -127,9 +128,9 @@ const Core = (() => {
     };
   }
 
-  // ------------------------------------------------------------------ storage (IndexedDB, one record)
+  // ------------------------------------------------------------------ local storage (IndexedDB key/value; copy of the server data + pending changes)
   let state = null;
-  const DB = 'p1s-accounting', STORE = 'kv';
+  const DB = 'voxara3d', STORE = 'kv';
   function idb() {
     return new Promise((res, rej) => {
       const r = indexedDB.open(DB, 1);
@@ -138,19 +139,32 @@ const Core = (() => {
       r.onerror = () => rej(r.error);
     });
   }
-  async function load() {
+  async function kvGet(key) {
     try {
       const db = await idb();
-      state = await new Promise((res, rej) => {
-        const q = db.transaction(STORE).objectStore(STORE).get('state');
-        q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error);
+      return await new Promise((res, rej) => {
+        const q = db.transaction(STORE).objectStore(STORE).get(key);
+        q.onsuccess = () => res(q.result ?? null); q.onerror = () => rej(q.error);
       });
-    } catch (e) { console.warn('IndexedDB unavailable', e); }
-    if (!state) {
-      try { state = JSON.parse(localStorage.getItem('p1s-state') || 'null'); } catch (e) { state = null; }
+    } catch (e) {
+      try { return JSON.parse(localStorage.getItem('vx-' + key) || 'null'); } catch (e2) { return null; }
     }
-    if (!state) state = defaultState();
-    migrate();
+  }
+  async function kvSet(key, value) {
+    const json = value == null ? null : JSON.parse(JSON.stringify(value));
+    try {
+      const db = await idb();
+      await new Promise((res, rej) => {
+        const t = db.transaction(STORE, 'readwrite'); t.objectStore(STORE).put(json, key);
+        t.oncomplete = res; t.onerror = () => rej(t.error);
+      });
+    } catch (e) {
+      try { localStorage.setItem('vx-' + key, JSON.stringify(json)); } catch (e2) { console.warn('storage full', e2); }
+    }
+  }
+  async function load() {
+    state = await kvGet('state');
+    if (state) migrate();
     return state;
   }
   function migrate() {
@@ -158,21 +172,22 @@ const Core = (() => {
     for (const k of Object.keys(d)) if (state[k] === undefined) state[k] = d[k];
     for (const k of Object.keys(d.settings)) if (state.settings[k] === undefined) state.settings[k] = d.settings[k];
     for (const k of Object.keys(d.lists)) if (!state.lists[k]) state.lists[k] = d.lists[k];
+    if (state.settings.bizName === 'Nook Art House') state.settings.bizName = 'Voxara.3d';
+    state.version = 2;
   }
-  async function save() {
-    const json = JSON.parse(JSON.stringify(state));
-    try {
-      const db = await idb();
-      await new Promise((res, rej) => {
-        const t = db.transaction(STORE, 'readwrite'); t.objectStore(STORE).put(json, 'state');
-        t.oncomplete = res; t.onerror = () => rej(t.error);
-      });
-    } catch (e) {
-      localStorage.setItem('p1s-state', JSON.stringify(json));
-    }
-  }
+  const save = () => kvSet('state', state);
   const S = () => state;
-  function replaceState(obj) { state = obj; migrate(); }
+  function replaceState(obj) { state = obj; if (state) migrate(); }
+  // run fn against another copy of the data (used by sync to replay changes on the server copy)
+  function withState(obj, fn) {
+    const keep = state; state = obj; migrate();
+    try { return fn(); } finally { state = keep; }
+  }
+  const clone = o => JSON.parse(JSON.stringify(o));
+
+  // who is making the change (stamped on every document)
+  let actor = '', actorAt = '';
+  const stamp = () => ({ by: actor, at: actorAt || new Date().toISOString() });
 
   // ------------------------------------------------------------------ codes
   function nextCode(list, prefix, width = 3) {
@@ -366,8 +381,8 @@ const Core = (() => {
       if (num(it.initPrice) <= 0) it.initPrice = round(l.unitPrice);
       lines.push({ item: code, pkgs: num(l.pkgs), perPkg: l.qty / num(l.pkgs), price: num(l.price), qty: l.qty, amount: l.amount, ship: l.shipShare, cost: l.cost, unitPrice: l.unitPrice });
     }
-    state.purchases.push({ doc, date: f.date, vendor: f.vendor || '', acc: f.acc, ship: pv.ship, note: f.note || '', lines });
-    state.cash.push({ id: uid(), date: f.date, type: 'پرداخت خرید', acc: f.acc, amount: pv.total, customer: '', inv: doc, expCat: '', hours: 0, acc2: '', desc: `خرید ${lines.length} قلم از ${f.vendor || ''}`.trim() });
+    state.purchases.push({ ...stamp(), doc, date: f.date, vendor: f.vendor || '', acc: f.acc, ship: pv.ship, note: f.note || '', lines });
+    state.cash.push({ ...stamp(), id: uid(), date: f.date, type: 'پرداخت خرید', acc: f.acc, amount: pv.total, customer: '', inv: doc, expCat: '', hours: 0, acc2: '', desc: `خرید ${lines.length} قلم از ${f.vendor || ''}`.trim() });
     return doc;
   }
 
@@ -457,7 +472,7 @@ const Core = (() => {
       Object.assign(p, { post: num(f.post), assm: num(f.assm), pack: num(f.pack) }, definitionFromForm(f));
     }
     const doc = nextCode(state.productions, 'PRD', 4);
-    state.productions.push({
+    state.productions.push({ ...stamp(),
       doc, date: f.date, product: code, good: num(f.good), fail: num(f.fail), prints: pv.prints, estH: pv.estH, actualH: num(f.actualH), hrs: pv.hrs,
       estG: pv.estG, actualG: num(f.actualG), grams: pv.grams, wasteG: pv.wasteG, failG: pv.failG, labH: pv.labH, desH: num(f.designH) + num(f.researchH),
       matCost: pv.matCost, mac: pv.mac, lab: pv.lab, des: pv.des, total: pv.total, wasteCost: pv.wasteCost, failCost: pv.failCost, unit: pv.unit,
@@ -508,11 +523,11 @@ const Core = (() => {
       const share = pv.gross ? pv.disc * l.amount / pv.gross : 0;
       return { product: l.product, name: l.name, qty: num(l.qty), price: l.price, disc: share, net: l.amount - share, ucost: l.ucost, cogs: l.cost };
     });
-    state.invoices.push({ no, date: f.date, kind: f.kind, customer, acc: f.acc, gross: pv.gross, disc: pv.disc, net: pv.net, ship: num(f.ship), shipPayer: f.shipPayer,
+    state.invoices.push({ ...stamp(), no, date: f.date, kind: f.kind, customer, acc: f.acc, gross: pv.gross, disc: pv.disc, net: pv.net, ship: num(f.ship), shipPayer: f.shipPayer,
       shipIn: pv.shipIn, total: pv.total, cogs: pv.cogs, note: f.note || '', lines });
-    if (pv.rcv > 0) state.cash.push({ id: uid(), date: f.date, type: 'دریافت فروش', acc: f.acc, amount: pv.rcv, customer, inv: no, expCat: '', hours: 0, acc2: '', desc: 'دریافت هنگام فروش' });
-    if (pv.shipIn > 0) state.cash.push({ id: uid(), date: f.date, type: 'پرداخت ارسال امانی', acc: f.acc, amount: pv.shipIn, customer, inv: no, expCat: '', hours: 0, acc2: '', desc: 'هزینه ارسال به حساب مشتری' });
-    if (pv.shipOurs > 0) state.cash.push({ id: uid(), date: f.date, type: 'هزینه ارسال فروش', acc: f.acc, amount: pv.shipOurs, customer, inv: no, expCat: 'حمل و نقل', hours: 0, acc2: '', desc: 'ارسال بر عهده فروشنده' });
+    if (pv.rcv > 0) state.cash.push({ ...stamp(), id: uid(), date: f.date, type: 'دریافت فروش', acc: f.acc, amount: pv.rcv, customer, inv: no, expCat: '', hours: 0, acc2: '', desc: 'دریافت هنگام فروش' });
+    if (pv.shipIn > 0) state.cash.push({ ...stamp(), id: uid(), date: f.date, type: 'پرداخت ارسال امانی', acc: f.acc, amount: pv.shipIn, customer, inv: no, expCat: '', hours: 0, acc2: '', desc: 'هزینه ارسال به حساب مشتری' });
+    if (pv.shipOurs > 0) state.cash.push({ ...stamp(), id: uid(), date: f.date, type: 'هزینه ارسال فروش', acc: f.acc, amount: pv.shipOurs, customer, inv: no, expCat: 'حمل و نقل', hours: 0, acc2: '', desc: 'ارسال بر عهده فروشنده' });
     return no;
   }
 
@@ -527,7 +542,7 @@ const Core = (() => {
       if (!state.customers.find(x => x.name === c.customer)) throw new Error('مشتری را انتخاب کنید.');
       if (c.inv) { const inv = state.invoices.find(i => i.no === c.inv); if (!inv) throw new Error('شماره فاکتور پیدا نشد.'); if (inv.customer !== c.customer) throw new Error(`فاکتور ${c.inv} متعلق به ${inv.customer} است.`); }
     }
-    state.cash.push({ id: uid(), date: c.date, type: c.type, acc: c.acc, amount: num(c.amount), customer: c.customer || '', inv: c.inv || '', expCat: c.expCat || '',
+    state.cash.push({ ...stamp(), id: uid(), date: c.date, type: c.type, acc: c.acc, amount: num(c.amount), customer: c.customer || '', inv: c.inv || '', expCat: c.expCat || '',
       hours: num(c.hours), acc2: c.type === 'انتقال بین حساب‌ها' ? c.acc2 : '', desc: c.desc || '' });
   }
   function adjustmentPreview(a) {
@@ -566,7 +581,7 @@ const Core = (() => {
       if (!a.product) throw new Error('محصول را انتخاب کنید.');
       if (num(a.qty) > productMoves(a.product).stock + 1e-6) throw new Error('تعداد بیشتر از موجودی محصول است.');
     } else if (!a.item) throw new Error('کالای مواد اولیه را انتخاب کنید.');
-    state.adjustments.push({ id: uid(), date: a.date, type: a.type, inv: pv.isRet ? a.inv : '', product: a.type === ADJ_TYPES[3] ? '' : a.product, item: a.type === ADJ_TYPES[3] ? a.item : '',
+    state.adjustments.push({ ...stamp(), id: uid(), date: a.date, type: a.type, inv: pv.isRet ? a.inv : '', product: a.type === ADJ_TYPES[3] ? '' : a.product, item: a.type === ADJ_TYPES[3] ? a.item : '',
       qty: num(a.qty), reason: a.reason || '', rmode: pv.isRet ? a.rmode : '', acc: pv.refund > 0 ? a.acc : '', note: a.note || '',
       customer: pv.customer, unitPrice: pv.unitPrice, value: pv.value, credit: pv.credit, refund: pv.refund, ucost: pv.ucost, cost: pv.cost, gpEffect: pv.gpEffect, loss: pv.loss });
   }
@@ -648,10 +663,113 @@ const Core = (() => {
     return t;
   }
 
+  // ------------------------------------------------------------------ master-data changes (each one is a replayable change)
+  function saveItem(code, it) {
+    if (!it.name || !ITEM_TYPES.includes(it.type)) throw new Error('نوع و نام کالا را وارد کنید.');
+    const clean = { code: it.code, type: it.type, name: String(it.name).trim(), color: String(it.color || '').trim(), unit: it.unit || (it.type === ITEM_TYPES[0] ? 'گرم' : 'عدد'),
+      initPrice: num(it.initPrice), overridePrice: num(it.overridePrice), initStock: num(it.initStock), minStock: num(it.minStock) };
+    if (!code) {
+      clean.code = nextCode(state.items.filter(i => i.code.startsWith(TYPE_PREFIX[it.type] + '-')), TYPE_PREFIX[it.type]);
+      state.items.push(clean);
+    } else {
+      const ex = itemBy(code); if (!ex) throw new Error('کالا پیدا نشد.');
+      Object.assign(ex, clean, { code });
+    }
+    return clean.code;
+  }
+  function saveProduct(code, p) {
+    if (!p.name) throw new Error('نام محصول را وارد کنید.');
+    const clean = { name: String(p.name).trim(), cat: p.cat || '', post: num(p.post), assm: num(p.assm), pack: num(p.pack), listPrice: num(p.listPrice),
+      plates: (p.plates || []).map(pl => ({ desc: pl.desc || '', upp: num(pl.upp) || 1, h: num(pl.h), m: num(pl.m), model: num(pl.model),
+        fils: (pl.fils || []).filter(f => f.item).map(f => ({ item: f.item, grams: num(f.grams) })) })),
+      accs: (p.accs || []).filter(x => x.item).map(x => ({ item: x.item, qty: num(x.qty), lost: !!x.lost })) };
+    if (!code) { clean.code = nextCode(state.products, 'P'); state.products.push(clean); return clean.code; }
+    const ex = productBy(code); if (!ex) throw new Error('محصول پیدا نشد.');
+    Object.assign(ex, clean); return code;
+  }
+  function addAccount(name) {
+    name = String(name || '').trim(); if (!name) throw new Error('نام حساب را وارد کنید.');
+    if (state.accounts.find(x => x.name === name)) throw new Error('این حساب هست.');
+    state.accounts.push({ name, open: 0 });
+  }
+  function setAccountOpen(name, open) { const a = state.accounts.find(x => x.name === name); if (a) a.open = num(open); }
+  function setCustomer(name, key, value) { const c = state.customers.find(x => x.name === name); if (c && ['phone', 'city', 'note'].includes(key)) c[key] = String(value); }
+  function setSetting(key, value) {
+    if (!(key in defaultState().settings)) return;
+    state.settings[key] = typeof defaultState().settings[key] === 'number' ? num(value) : String(value);
+  }
+  function setList(key, values) { if (key in state.lists) state.lists[key] = (values || []).map(x => String(x).trim()).filter(Boolean); }
+  function addAsset(x) {
+    if (!x.name || num(x.cost) <= 0) throw new Error('نام و مبلغ دارایی را وارد کنید.');
+    if (!x.date) throw new Error('تاریخ معتبر نیست.');
+    state.assets.push({ code: nextCode(state.assets, 'AST'), name: x.name, date: x.date, cost: num(x.cost), salv: num(x.salv), life: num(x.life), dtype: x.dtype });
+  }
+  function wipeDocs() { Object.assign(state, { purchases: [], productions: [], invoices: [], cash: [], adjustments: [] }); }
+  function restoreState(obj) {
+    if (!obj || !obj.settings || !obj.items) throw new Error('فایل پشتیبان معتبر نیست.');
+    const users = state.users;
+    const fresh = clone(obj); delete fresh.users;
+    for (const k of Object.keys(state)) delete state[k];
+    Object.assign(state, fresh, { users }); migrate();
+  }
+
+  // ------------------------------------------------------------------ users (password hashes only, never the password)
+  const userBy = name => (state.users || []).find(u => u.name === name);
+  const admins = () => state.users.filter(u => u.role === 'admin' && u.active);
+  function addUser(u) {
+    const name = String(u.name || '').trim();
+    if (!name) throw new Error('نام کاربری را وارد کنید.');
+    if (userBy(name)) throw new Error('این نام کاربری هست.');
+    if (!u.hash || !u.salt) throw new Error('رمز را وارد کنید.');
+    state.users.push({ name, full: u.full || '', role: u.role === 'admin' ? 'admin' : 'staff', salt: u.salt, hash: u.hash, iter: u.iter, active: true, created: actorAt });
+  }
+  function setUser(name, patch) {
+    const u = userBy(name); if (!u) throw new Error('کاربر پیدا نشد.');
+    const next = { ...u };
+    if (patch.role) next.role = patch.role === 'admin' ? 'admin' : 'staff';
+    if (patch.active !== undefined) next.active = !!patch.active;
+    if (patch.full !== undefined) next.full = String(patch.full);
+    if (patch.hash) Object.assign(next, { hash: patch.hash, salt: patch.salt, iter: patch.iter });
+    if (u.role === 'admin' && u.active && (next.role !== 'admin' || !next.active) && admins().length <= 1) throw new Error('حداقل یک ادمین فعال باید بماند.');
+    Object.assign(u, next);
+  }
+  function delUser(name) {
+    const u = userBy(name); if (!u) return;
+    if (u.role === 'admin' && u.active && admins().length <= 1) throw new Error('حداقل یک ادمین فعال باید بماند.');
+    state.users = state.users.filter(x => x.name !== name);
+  }
+  function docOwner(kind, key) {
+    const map = { purchase: ['purchases', 'doc'], production: ['productions', 'doc'], invoice: ['invoices', 'no'], cash: ['cash', 'id'], adjustment: ['adjustments', 'id'] };
+    const [list, k] = map[kind] || []; const d = list ? state[list].find(x => x[k] === key) : null;
+    return d ? d.by || '' : null;
+  }
+
+  // ------------------------------------------------------------------ changes ("ops"): every edit goes through apply() so it can be replayed on the server copy
+  const OPS = {
+    purchase: a => registerPurchase(a), production: a => registerProduction(a), sale: a => registerSale(a), cash: a => registerCash(a), adj: a => registerAdjustment(a),
+    delDoc: a => deleteDoc(a.kind, a.key),
+    saveItem: a => saveItem(a.code, a.item), saveProduct: a => saveProduct(a.code, a.product), addAccount: a => addAccount(a.name), setAccountOpen: a => setAccountOpen(a.name, a.open),
+    setCustomer: a => setCustomer(a.name, a.key, a.value), setSetting: a => setSetting(a.key, a.value), setList: a => setList(a.key, a.values), addAsset: a => addAsset(a),
+    wipeDocs: () => wipeDocs(), restore: a => restoreState(a.state),
+    addUser: a => addUser(a), setUser: a => setUser(a.name, a.patch), delUser: a => delUser(a.name)
+  };
+  const ADMIN_OPS = new Set(['saveItem', 'saveProduct', 'addAccount', 'setAccountOpen', 'setSetting', 'setList', 'addAsset', 'wipeDocs', 'restore', 'addUser', 'delUser']);
+  function apply(op) {
+    const u = userBy(op.by);
+    if (!u || !u.active) throw new Error(`کاربر «${op.by}» فعال نیست.`);
+    if (!OPS[op.type]) throw new Error('تغییر ناشناخته: ' + op.type);
+    const admin = u.role === 'admin';
+    if (ADMIN_OPS.has(op.type) && !admin) throw new Error('این کار فقط برای ادمین مجاز است.');
+    if (op.type === 'setUser' && !admin && (op.args.name !== op.by || Object.keys(op.args.patch).some(k => !['hash', 'salt', 'iter'].includes(k)))) throw new Error('فقط رمز خودتان را می‌توانید عوض کنید.');
+    if (op.type === 'delDoc' && !admin && docOwner(op.args.kind, op.args.key) !== op.by) throw new Error('فقط اسنادی را که خودتان ثبت کرده‌اید می‌توانید حذف کنید.');
+    actor = op.by; actorAt = op.at;
+    try { return OPS[op.type](clone(op.args)); } finally { actor = ''; actorAt = ''; }
+  }
+
   return {
     toEnDigits, num, round, sum, uid, g2j, j2g, jOfIso, isoOfJ, todayIso, todayJ, jParts, daysBetween,
     ITEM_TYPES, CASH_TYPES, ADJ_TYPES, REFUND_MODES, SHIP_PAYERS, ASSET_TYPES, MONTHS,
-    load, save, S, replaceState, defaultState, nextCode,
+    load, save, S, replaceState, withState, clone, defaultState, nextCode, kvGet, kvSet, apply, userBy, docOwner,
     itemBy, itemLabel, isFil, itemFactor, itemPriceUnit, itemEffPrice, itemUnitCost, itemStock, itemStatus, itemMoves, lastPurchasePrice,
     rateMachine, productBy, productLabel, productCalc, productMoves,
     invoiceCalc, customerCalc, accountCalc, accountStatement, cashDef, cashDir, ensureCustomer,
