@@ -1,0 +1,21 @@
+{
+  "name": "p1s-accounting",
+  "version": "1.0.0",
+  "private": true,
+  "description": "P1S 3D printing accounting – offline mobile app (PWA + Capacitor)",
+  "scripts": {
+    "android": "npx cap add android && npx cap sync android",
+    "ios": "npx cap add ios && npx cap sync ios",
+    "sync": "npx cap sync"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/filesystem": "^6.0.1",
+    "@capacitor/ios": "^6.1.2",
+    "@capacitor/share": "^6.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2"
+  }
+}
