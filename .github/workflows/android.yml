@@ -1,10 +1,8 @@
 name: Build Android APK
-
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
-
 jobs:
   android:
     runs-on: ubuntu-latest
@@ -12,10 +10,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Arrange app files
         run: |
-          mkdir -p www/fonts www/icons
-          mv *.ttf www/fonts/
-          mv icon-*.png www/icons/
-          mv index.html app.css core.js ui.js sw.js manifest.webmanifest www/
+          if [ ! -d www ]; then
+            mkdir -p www/fonts www/icons
+            mv *.ttf www/fonts/
+            mv icon-*.png logo*.png www/icons/
+            mv index.html *.css *.js manifest.webmanifest www/
+          fi
           ls -R www
       - uses: actions/setup-node@v4
         with:
@@ -30,12 +30,19 @@ jobs:
         run: |
           npx cap add android
           npx cap sync android
+      - name: App icon from the Voxara logo
+        run: |
+          mkdir -p assets
+          cp www/icons/logo-1024.png assets/logo.png
+          npx --yes @capacitor/assets@3 generate --android --iconBackgroundColor '#ffffff' --iconBackgroundColorDark '#ffffff' --splashBackgroundColor '#ffffff' --splashBackgroundColorDark '#ffffff'
       - name: Build debug APK
         working-directory: android
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
+      - name: Rename APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk Voxara3d.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: P1S-Accounting-android
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: Voxara3d-android
+          path: Voxara3d.apk

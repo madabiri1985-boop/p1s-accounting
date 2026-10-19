@@ -1,0 +1,35 @@
+name: Publish web app to GitHub Pages
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Arrange app files
+        run: |
+          if [ ! -d www ]; then
+            mkdir -p www/fonts www/icons
+            mv *.ttf www/fonts/
+            mv icon-*.png logo*.png www/icons/
+            mv index.html *.css *.js manifest.webmanifest www/
+          fi
+          ls -R www
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: www
+      - id: deployment
+        uses: actions/deploy-pages@v4
